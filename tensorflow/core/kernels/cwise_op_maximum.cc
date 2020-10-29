@@ -16,11 +16,11 @@ limitations under the License.
 #include "tensorflow/core/kernels/cwise_ops_common.h"
 
 namespace tensorflow {
-REGISTER5(BinaryOp, CPU, "Maximum", functor::maximum, float, Eigen::half,
-          double, int32, int64);
-#if GOOGLE_CUDA
-REGISTER4(BinaryOp, GPU, "Maximum", functor::maximum, float, Eigen::half,
-          double, int64);
+REGISTER8(BinaryOp, CPU, "Maximum", functor::maximum, float, Eigen::half,
+          bfloat16, double, uint8, int16, int32, int64);
+#if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
+REGISTER6(BinaryOp, GPU, "Maximum", functor::maximum, float, Eigen::half,
+          double, uint8, int16, int64);
 
 // A special GPU kernel for int32.
 // TODO(b/25387198): Also enable int32 in device memory. This kernel
@@ -33,20 +33,5 @@ REGISTER_KERNEL_BUILDER(Name("Maximum")
                             .TypeConstraint<int32>("T"),
                         BinaryOp<CPUDevice, functor::maximum<int32>>);
 #endif
-
-#ifdef TENSORFLOW_USE_SYCL
-REGISTER(BinaryOp, SYCL, "Maximum", functor::maximum, float);
-
-// A special GPU kernel for int32.
-// TODO(b/25387198): Also enable int32 in device memory. This kernel
-// registration requires all int32 inputs and outputs to be in host memory.
-REGISTER_KERNEL_BUILDER(Name("Maximum")
-                            .Device(DEVICE_SYCL)
-                            .HostMemory("x")
-                            .HostMemory("y")
-                            .HostMemory("z")
-                            .TypeConstraint<int32>("T"),
-                        BinaryOp<CPUDevice, functor::maximum<int32>>);
-#endif // TENSORFLOW_USE_SYCL
 
 }  // namespace tensorflow

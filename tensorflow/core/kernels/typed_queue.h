@@ -41,7 +41,7 @@ class TypedQueue : public QueueBase {
   int64 MemoryUsed() const override;
 
  protected:
-  std::vector<SubQueue> queues_ GUARDED_BY(mu_);
+  std::vector<SubQueue> queues_ TF_GUARDED_BY(mu_);
 };  // class TypedQueue
 
 template <typename SubQueue>
@@ -58,9 +58,9 @@ Status TypedQueue<SubQueue>::Initialize() {
   if (!component_shapes_.empty() &&
       component_dtypes_.size() != component_shapes_.size()) {
     return errors::InvalidArgument(
-        "Different number of component types.  ", "Types: ",
-        DataTypeSliceString(component_dtypes_), ", Shapes: ",
-        ShapeListString(component_shapes_));
+        "Different number of component types.  ",
+        "Types: ", DataTypeSliceString(component_dtypes_),
+        ", Shapes: ", ShapeListString(component_shapes_));
   }
 
   mutex_lock lock(mu_);
@@ -84,7 +84,7 @@ int64 SizeOf(const std::deque<PersistentTensor>& sq) {
   if (sq.empty()) {
     return 0;
   }
-  return sq.size() * sq.front().TotalBytes();
+  return sq.size() * sq.front().AllocatedBytes();
 }
 
 template <>
@@ -92,7 +92,7 @@ int64 SizeOf(const std::vector<PersistentTensor>& sq) {
   if (sq.empty()) {
     return 0;
   }
-  return sq.size() * sq.front().TotalBytes();
+  return sq.size() * sq.front().AllocatedBytes();
 }
 
 using TensorPair = std::pair<int64, PersistentTensor>;
@@ -102,7 +102,7 @@ int64 SizeOf(const std::priority_queue<TensorPair, U, V>& sq) {
   if (sq.empty()) {
     return 0;
   }
-  return sq.size() * (sizeof(TensorPair) + sq.top().second.TotalBytes());
+  return sq.size() * (sizeof(TensorPair) + sq.top().second.AllocatedBytes());
 }
 
 }  // namespace

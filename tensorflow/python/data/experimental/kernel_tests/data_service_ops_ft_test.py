@@ -78,6 +78,42 @@ class DataServiceOpsTest(data_service_test_base.TestBase,
     self.assertEqual(list(range(num_elements)), results)
 
   @combinations.generate(test_base.eager_only_combinations())
+  def testDispatcherRestartDuringDistributedEpoch(self):
+    cluster = self.create_cluster(num_workers=1)
+    num_elements = 100
+    ds = self.make_distributed_range_dataset(
+        num_elements, cluster, processing_mode="distributed_epoch")
+    iterator = iter(ds)
+    results = []
+    for _ in range(num_elements // 2):
+      results.append(next(iterator).numpy())
+    cluster.restart_dispatcher()
+    for elem in iterator:
+      results.append(elem.numpy())
+
+    self.assertEqual(list(range(num_elements)), results)
+
+  @combinations.generate(test_base.eager_only_combinations())
+  def testDispatcherRestartDuringDistributedEpochRepeat(self):
+    cluster = self.create_cluster(num_workers=1)
+    num_elements = 100
+    repetitions = 5
+    breakpoints = [50, 250, 450, 500]
+    ds = dataset_ops.Dataset.range(num_elements)
+    ds = ds.repeat(repetitions)
+    ds = self.make_distributed_dataset(
+        ds, cluster, processing_mode="distributed_epoch")
+
+    iterator = iter(ds)
+    results = []
+    for breakpoint in breakpoints:
+      for _ in range(len(results), breakpoint):
+        results.append(next(iterator).numpy())
+      cluster.restart_dispatcher()
+
+    self.assertCountEqual(repetitions * list(range(num_elements)), results)
+
+  @combinations.generate(test_base.eager_only_combinations())
   def testDispatcherRestartBetweenIterations(self):
     cluster = self.create_cluster(num_workers=1)
     num_elements = 100
@@ -112,6 +148,60 @@ class DataServiceOpsTest(data_service_test_base.TestBase,
     cluster.restart_dispatcher()
     cluster.restart_worker()
     self.assertDatasetProduces(ds, list(range(num_elements)))
+
+  @combinations.generate(
+      combinations.times(test_base.default_test_combinations(),
+                         combinations.combine(workers_to_add=[1, 3])))
+  def testRoundRobinAddWorkers(self, workers_to_add):
+    starting_workers = 3
+    cluster = self.create_cluster(num_workers=starting_workers)
+    # Round robin reads can cause slow cluster shutdown.
+    data_service_test_base.GLOBAL_CLUSTERS.add(cluster)
+    num_consumers = 7
+    ds = dataset_ops.Dataset.range(100000000)
+    ds = ds.repeat()
+    consumers = []
+    for consumer_index in range(num_consumers):
+      consumers.append(
+          self.make_distributed_dataset(
+              ds,
+              cluster,
+              job_name="test",
+              consumer_index=consumer_index,
+              num_consumers=num_consumers))
+    # Use parallel interleave to read from consumers in parallel.
+    ds = dataset_ops.Dataset.from_tensor_slices(consumers)
+    ds = ds.interleave(
+        lambda x: x,
+        cycle_length=num_consumers,
+        num_parallel_calls=num_consumers)
+
+    get_next = self.getNext(ds, requires_initialization=True)
+    results = []
+    zeros_seen = 0
+    for _ in range(50):
+      results.append(self.evaluate(get_next()))
+      if results[-1] == 0:
+        zeros_seen += 1
+
+    for _ in range(workers_to_add):
+      cluster.add_worker()
+
+    # Read until all new workers have joined.
+    while zeros_seen < starting_workers + workers_to_add:
+      results.append(self.evaluate(get_next()))
+      if results[-1] == 0:
+        zeros_seen += 1
+    # Read some more.
+    for _ in range(100):
+      results.append(self.evaluate(get_next()))
+
+    for i in range(0, len(results), num_consumers):
+      self.assertEqual(0, results[i] % num_consumers)
+      # Check that each group of `num_consumers` results are consecutive.
+      for offset in range(1, num_consumers):
+        if i + offset < len(results):
+          self.assertEqual(results[i] + offset, results[i + offset])
 
   @combinations.generate(test_base.eager_only_combinations())
   def testDispatcherAndMultiWorkerRestart(self):

@@ -126,6 +126,8 @@ class EventNode {
   bool StartsBefore(const EventNode& other) const;
 
  private:
+  XStat* FindOrAddStatByType(int64 stat_type);
+
   const XPlaneVisitor* plane_;
   XEventVisitor visitor_;
   XLine* raw_line_;
@@ -174,7 +176,8 @@ class EventForest {
 
   void ConnectTfDataEvents();
 
-  void GroupEvents(const std::vector<int64>& root_event_types = {});
+  void GroupEvents(
+      const std::vector<int64>& user_defined_root_event_types = {});
 
   const EventNodeMap& GetEventNodeMap() const { return event_node_map_; }
 
@@ -196,8 +199,8 @@ class EventForest {
   void ConnectInterThread(
       const std::vector<InterThreadConnectInfo>& connect_info_list);
 
-  void ProcessLegacyRootEvents(
-      const std::vector<int64 /*EventType*/>& root_event_types);
+  void ProcessUserDefinedRootEvents(
+      const std::vector<int64 /*EventType*/>& user_defined_root_event_types);
 
   // Creates event groups and populates group_metadata_map. If a TF loop is
   // used, each TF loop iteration becomes a root. Otherwise, top root events
